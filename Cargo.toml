@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "nbfx",
+    "nmf",
+    "nmf-proxy",
+    "nns",
+    "nlmp",
+    "nttime",
+]

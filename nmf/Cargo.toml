@@ -1,0 +1,20 @@
+[package]
+name = "nmf"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["std"]
+std = ["dep:bytes", "dep:futures", "dep:nom", "dep:tokio", "dep:tokio-util"]
+
+[dependencies]
+bytes = { version = "1.2.0", default-features = false, optional = true }
+derive_more = { version = "0.99.17", default-features = false, features = ["from", "try_into"] }
+futures = { version = "0.3.21", default-features = false, optional = true }
+nom = { version = "7.1.1", default-features = false, optional = true, features = ["alloc"] }
+tokio = { version = "1.20.1", features = ["rt", "macros", "net", "time"], optional = true, default-features = false }
+tokio-util = { version = "0.7.3", features = ["codec"], optional = true }
+hex-literal = "0.3.4"
+
+[dev-dependencies]
+hex-literal = "0.3.4"

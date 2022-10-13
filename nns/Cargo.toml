@@ -1,0 +1,14 @@
+[package]
+name = "nns"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+
+[dependencies]
+bytes = { version = "1.2.1", default-features = false }
+nom = { version = "7.1.1", default-features = false, features = ["alloc"] }
+tokio-util = { version = "0.7.4", features = ["codec"] }
+
+[dev-dependencies]
+hex-literal = "0.3.4"
