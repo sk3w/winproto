@@ -17,7 +17,6 @@ struct Args {
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let args = Args::parse();
-    let proxy = NmfProxy::listen(&args.listen_addr, &args.remote_addr).await?;
-    proxy.run().await?;
+    NmfProxy::listen(&args.listen_addr, &args.remote_addr).await?;
     Ok(())
 }

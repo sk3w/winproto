@@ -1,6 +1,6 @@
 use nom::{
     branch::alt,
-    bytes::complete::tag,
+    bytes::streaming::tag,
     combinator::{into, map, map_res, value},
     multi::{length_data, many_till},
     sequence::preceded,
@@ -268,5 +268,10 @@ mod tests {
     #[test]
     fn parse_end_message() {
         assert_eq!(end_record(b"\x07"), Ok((EMPTY, EndRecord::default())))
+    }
+
+    #[test]
+    fn parse_record_size() {
+        assert_eq!(record_size(b"\xb1\xa2\x06"), Ok((EMPTY, 102_705)))
     }
 }

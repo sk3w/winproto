@@ -1,4 +1,6 @@
 extern crate alloc;
+use core::fmt::Debug;
+
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -48,7 +50,7 @@ pub fn encode_record_size(size: usize) -> Vec<u8> {
             (size >> 21) as u8 & 0x7f | 0x80,
             (size >> 28) as u8 & 0x7f,
         ],
-        _ => panic!("size too large"),
+        _ => panic!("record size too large"),
     }
 }
 
@@ -266,9 +268,20 @@ impl Record for EndRecord {
 /// A Sized Envelope Record contains a message of the specified size.
 ///
 /// <https://docs.microsoft.com/en-us/openspecs/windows_protocols/mc-nmf/82159b78-4bbe-4ca8-a707-eeb65d3c6173>
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub struct SizedEnvelopeRecord {
     pub(crate) payload: Vec<u8>,
+}
+
+impl Debug for SizedEnvelopeRecord {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        //f.debug_struct("SizedEnvelopeRecord").field("payload", &self.payload).finish()
+        //f.write_fmt(format_args!("{:?}", &self.payload.hex_dump()))
+        f.write_fmt(format_args!(
+            "SizedEnvelopeRecord[{} bytes]",
+            self.payload.len()
+        ))
+    }
 }
 
 impl Record for SizedEnvelopeRecord {

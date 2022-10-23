@@ -1,6 +1,6 @@
 extern crate std;
 
-use bytes::{BufMut, BytesMut, Buf};
+use bytes::{Buf, BufMut, BytesMut};
 use nom::Offset;
 use std::{io, println};
 use tokio_util::codec::{Decoder, Encoder};
@@ -27,14 +27,15 @@ impl Decoder for NmfCodec {
                 src.advance(count);
                 Ok(Some(f))
             }
-            Err(nom::Err::Incomplete(_needed)) => {
-                Ok(None)
-            }
+            Err(nom::Err::Incomplete(_needed)) => Ok(None),
             //Err(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "Expected NmfFrame")),
             //Err(_) => Ok(Some(NmfFrame::Unknown(src.clone().freeze()))),
             Err(e) => {
                 println!("Error: {:?}", &e);
-                Err(io::Error::new(io::ErrorKind::InvalidData, "Expected NmfFrame"))
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Expected NmfFrame",
+                ))
             }
         }
     }
@@ -50,10 +51,10 @@ impl Encoder<NmfFrame> for NmfCodec {
             NmfFrame::PreambleAck(msg) => self.encode(msg, dst),
             NmfFrame::UpgradeRequest(_) => todo!(),
             NmfFrame::UpgradeResponse(_) => todo!(),
-            NmfFrame::End(_) => todo!(),
-            NmfFrame::SizedEnvelope(_) => todo!(),
+            NmfFrame::End(msg) => self.encode(msg, dst),
+            NmfFrame::SizedEnvelope(msg) => self.encode(msg, dst),
             NmfFrame::UnsizedEnvelope(_) => todo!(),
-            NmfFrame::Fault(_) => todo!(),
+            NmfFrame::Fault(msg) => self.encode(msg, dst),
             NmfFrame::Unknown(_) => todo!(),
         }
     }
@@ -101,7 +102,11 @@ impl Encoder<PreambleAckRecord> for NmfCodec {
 impl Encoder<UpgradeRequestRecord> for NmfCodec {
     type Error = io::Error;
 
-    fn encode(&mut self, item: UpgradeRequestRecord, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: UpgradeRequestRecord,
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
         dst.reserve(6 + item.inner_bytes().len());
         dst.put_u8(UpgradeRequestRecord::RECORD_TYPE);
         dst.put_slice(&encode_record_size(item.inner_bytes().len())); // max length of 5 bytes
@@ -113,7 +118,11 @@ impl Encoder<UpgradeRequestRecord> for NmfCodec {
 impl Encoder<UpgradeResponseRecord> for NmfCodec {
     type Error = io::Error;
 
-    fn encode(&mut self, item: UpgradeResponseRecord, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: UpgradeResponseRecord,
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
         todo!()
     }
 }
@@ -143,7 +152,11 @@ impl Encoder<SizedEnvelopeRecord> for NmfCodec {
 impl Encoder<UnsizedEnvelopeRecord> for NmfCodec {
     type Error = io::Error;
 
-    fn encode(&mut self, item: UnsizedEnvelopeRecord, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: UnsizedEnvelopeRecord,
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
         todo!()
     }
 }
@@ -164,6 +177,7 @@ impl Encoder<FaultRecord> for NmfCodec {
 mod tests {
     use super::*;
     use bytes::BytesMut;
+    use hex_literal::hex;
 
     #[test]
     fn decode_preamble_ack_record() {
@@ -177,6 +191,23 @@ mod tests {
 
     #[test]
     fn decode_fault_record() {
-        todo!()
+        let mut codec = NmfCodec::new();
+        let mut src = BytesMut::from(
+            hex!(
+                "08 47 68 74 74 70 3a 2f 2f 73 63 68 65 6d 61 73"
+                "2e 6d 69 63 72 6f 73 6f 66 74 2e 63 6f 6d 2f 77"
+                "73 2f 32 30 30 36 2f 30 35 2f 66 72 61 6d 69 6e"
+                "67 2f 66 61 75 6c 74 73 2f 45 6e 64 70 6f 69 6e"
+                "74 4e 6f 74 46 6f 75 6e 64"
+            )
+            .as_slice(),
+        );
+        let fault_record = FaultRecord::new(
+            "http://schemas.microsoft.com/ws/2006/05/framing/faults/EndpointNotFound",
+        );
+        assert_eq!(
+            codec.decode(&mut src).unwrap(),
+            Some(NmfFrame::Fault(fault_record))
+        )
     }
 }
