@@ -1,5 +1,8 @@
 [workspace]
 members = [
+    "kdc-proxy",
+    "kdc-tools",
+    "kile",
     "nbfx",
     "nmf",
     "nmf-proxy",

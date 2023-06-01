@@ -1,0 +1,25 @@
+[package]
+name = "kdc-proxy"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytes = "1.2.1"
+chrono = { version = "0.4.24", default-features = false }
+clap = { version = "4.0.22", features = ["derive"] }
+derive_more = "0.99.17"
+futures = "0.3.25"
+kile = { version = "0.1.0", path = "../kile" }
+nom = "7.1.1"
+rasn = { git = "https://github.com/sk3w/rasn.git", branch = "workaround" }
+rasn-kerberos = { git = "https://github.com/sk3w/rasn.git", branch = "workaround" }
+tokio = { version = "1.21.2", features = ["full"] }
+tokio-util = { version = "0.7.4", features = ["codec"] }
+tracing = "0.1.37"
+tracing-subscriber = "0.3.16"
+
+[dev-dependencies]
+bitvec = "1.0.1"
+
