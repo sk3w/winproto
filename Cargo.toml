@@ -8,5 +8,6 @@ members = [
     "nmf-proxy",
     "nns",
     "nlmp",
+    "nthash",
     "nttime",
 ]
