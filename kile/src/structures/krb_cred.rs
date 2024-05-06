@@ -1,6 +1,7 @@
-use itertools::Itertools;
 use rasn::der;
 use rasn_kerberos::{EncKrbCredPart, KrbCred};
+
+use crate::structures::TicketExt;
 
 pub trait KrbCredExt {
     fn show(&self) -> String;
@@ -13,13 +14,7 @@ impl KrbCredExt for KrbCred {
         format!(
             "[TGT]\nRealm: {}\nPrincipalName: {:?}\nBody: {:#?}",
             ticket.realm.as_str(),
-            &ticket
-                .sname
-                .string
-                .iter()
-                .map(|i| i.as_str())
-                .intersperse("/")
-                .collect::<String>(),
+            &ticket.get_spn(),
             &body,
         )
     }

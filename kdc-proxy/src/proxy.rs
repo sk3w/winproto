@@ -26,7 +26,7 @@ impl KdcProxy {
     pub async fn listen(
         listen_addr: SocketAddr,
         remote_addr: SocketAddr,
-        handler: impl Handler + Copy + Send + 'static,
+        handler: impl Handler + Clone + Send + 'static,
     ) -> io::Result<()> {
         let listener = TcpListener::bind(listen_addr).await?;
         info!("Listening on {listen_addr}");
@@ -40,11 +40,11 @@ impl KdcProxy {
                 client_framed,
                 server_framed,
             };
-            tokio::spawn(proxy.run(handler));
+            tokio::spawn(proxy.run(handler.clone()));
         }
     }
 
-    async fn run(self, mut handler: impl Handler + Send + 'static) -> io::Result<()> {
+    async fn run(self, handler: impl Handler + Send + 'static) -> io::Result<()> {
         let (client_sink, mut client_stream): (
             SplitSink<Framed<TcpStream, KdcCodec>, KdcFrame>,
             SplitStream<Framed<TcpStream, KdcCodec>>,
@@ -55,6 +55,8 @@ impl KdcProxy {
         ) = self.server_framed.split();
         let client_sink = Arc::new(Mutex::new(client_sink));
         let client_reply_sink = client_sink.clone();
+        let handler = Arc::new(Mutex::new(handler));
+        let handler2 = handler.clone();
 
         // Handle messages from client
         let (client_future, client_abort_handle) = abortable(async move {
@@ -74,7 +76,7 @@ impl KdcProxy {
                 //     Err(error) => warn!("Failed to parse message from client: {}", &error),
                 // }
                 if let Ok(frame) = item {
-                    match handler.handle_downstream(frame) {
+                    match handler.lock().await.handle_downstream(frame) {
                         HandlerAction::Forward(frame) => {
                             info!("Forwarding message to KDC...");
                             server_sink.send(frame).await.unwrap();
@@ -97,27 +99,43 @@ impl KdcProxy {
         // Handle messages from KDC
         let (server_future, server_abort_handle) = abortable(async move {
             while let Some(item) = server_stream.next().await {
+                // match item {
+                //     Ok(KdcFrame::AsRep(as_rep)) => {
+                //         info!("Received AS_REP, forwarding to client...");
+                //         client_sink.lock().await.send(as_rep.into()).await.unwrap();
+                //     }
+                //     Ok(KdcFrame::TgsRep(tgs_rep)) => {
+                //         info!("Received TGS_REP, forwarding to client...");
+                //         client_sink.lock().await.send(tgs_rep.into()).await.unwrap();
+                //     }
+                //     Ok(KdcFrame::KrbError(krb_error)) => {
+                //         info!("Received KRB_ERROR, forwarding to client...");
+                //         client_sink
+                //             .lock()
+                //             .await
+                //             .send(krb_error.into())
+                //             .await
+                //             .unwrap();
+                //     }
+                //     Ok(frame) => {
+                //         warn!("Received unexpected message from KDC: {frame:?}");
+                //     }
+                //     Err(error) => warn!("Failed to parse message from KDC: {}", &error),
+                // }
                 match item {
-                    Ok(KdcFrame::AsRep(as_rep)) => {
-                        info!("Received AS_REP, forwarding to client...");
-                        client_sink.lock().await.send(as_rep.into()).await.unwrap();
-                    }
-                    Ok(KdcFrame::TgsRep(tgs_rep)) => {
-                        info!("Received TGS_REP, forwarding to client...");
-                        client_sink.lock().await.send(tgs_rep.into()).await.unwrap();
-                    }
-                    Ok(KdcFrame::KrbError(krb_error)) => {
-                        info!("Received KRB_ERROR, forwarding to client...");
-                        client_sink
-                            .lock()
-                            .await
-                            .send(krb_error.into())
-                            .await
-                            .unwrap();
-                    }
-                    Ok(frame) => {
-                        warn!("Received unexpected message from KDC: {frame:?}");
-                    }
+                    Ok(frame) => match handler2.lock().await.handle_upstream(frame) {
+                        HandlerAction::Forward(frame) => {
+                            client_sink.lock().await.send(frame).await.unwrap();
+                        }
+                        HandlerAction::DropAndReplyWith(_) => {
+                            info!("Dropping message to KDC and sending reply to client...");
+                            todo!()
+                        }
+                        HandlerAction::DropSilently => {
+                            info!("Dropping message from KDC silently!");
+                            // don't do anything
+                        }
+                    },
                     Err(error) => warn!("Failed to parse message from KDC: {}", &error),
                 }
             }

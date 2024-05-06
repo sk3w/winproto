@@ -1,12 +1,16 @@
 mod cve_2022_33647;
 mod cve_2023_28244;
 mod downgrade_pa;
+mod forge_error;
+mod ritm;
 mod roast_active;
 mod roast_passive;
 
 pub use cve_2022_33647::Cve202233647Handler;
 pub use cve_2023_28244::Cve202328244Handler;
 pub use downgrade_pa::DowngradePaHandler;
+pub use forge_error::ForgeErrorHandler;
+pub use ritm::RitmHandler;
 pub use roast_active::RoastActiveHandler;
 pub use roast_passive::RoastPassiveHandler;
 

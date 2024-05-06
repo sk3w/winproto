@@ -1,5 +1,4 @@
 use core::fmt;
-use std::io;
 
 use bytes::Bytes;
 use chrono::Utc;
@@ -7,8 +6,19 @@ use itertools::repeat_n;
 use nthash::NtHash;
 use rasn_kerberos::AsRep;
 use rc4::{KeyInit, Rc4, StreamCipher};
+use snafu::prelude::*;
 
 use crate::structures::AsRepExt;
+
+#[derive(Debug, Snafu)]
+pub enum Rc4Md4Error {
+    #[snafu(display("AS-REP message was missing a RC4-MD4 enc_part field"))]
+    AsRepMissingEncPart,
+    #[snafu(display("AS-REP message was too large"))]
+    AsRepTooLarge,
+    #[snafu(display("RC4-MD4 Keystream length was too short ({length})"))]
+    KeystreamLength { length: usize },
+}
 
 pub fn decrypt(ciphertext: &mut [u8], password: &str) -> Option<()> {
     let nt_hash = NtHash::from(password);
@@ -19,6 +29,7 @@ pub fn decrypt(ciphertext: &mut [u8], password: &str) -> Option<()> {
     Some(())
 }
 
+/// RC4-MD4 (EType -128) Keystream used for Microsoft Kerberos encryption & decryption
 pub struct Keystream(Vec<u8>);
 
 impl Keystream {
@@ -48,48 +59,55 @@ impl Keystream {
     ///
     /// Since the first ~45 bytes of the EncAsRepPart is predictable, we can recover this portion
     /// of the RC4 keystream for use in cryptographic attacks
-    pub fn from_as_rep(as_rep: &AsRep) -> io::Result<Self> {
-        let ciphertext = as_rep.get_rc4_md4_enc_part().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Failed to extract keystream from AS_REP",
-            )
-        })?;
+    pub fn from_as_rep(as_rep: &AsRep) -> Result<Self, Rc4Md4Error> {
+        let ciphertext = as_rep
+            .get_rc4_md4_enc_part()
+            .context(AsRepMissingEncPartSnafu)?;
         let mut plaintext = [0u8; 24].to_vec();
-        // plaintext.extend_from_slice(&[0x79, 0x82]);
-        // plaintext.extend_from_slice(&(ciphertext.len() as u16 - 28).to_be_bytes());
-        // plaintext.extend_from_slice(&[0x30, 0x82]);
-        // plaintext.extend_from_slice(&(ciphertext.len() as u16 - 32).to_be_bytes());
         plaintext.push(0x79);
-        let len_1 = ciphertext.len() - 28;
-        match len_1 {
-            0..=127 => plaintext.push(len_1 as u8),
-            128..=255 => {
+        let len_1 = ciphertext.len() - 24;
+        let len_prefix_1 = match len_1 {
+            0..=129 => {
+                plaintext.push((len_1 - 2) as u8);
+                2usize
+            }
+            130..=258 => {
                 plaintext.push(0x81);
-                plaintext.push(len_1 as u8);
+                plaintext.push((len_1 - 3) as u8);
+                3usize
             }
-            256..=65535 => {
+            259..=65535 => {
                 plaintext.push(0x82);
-                plaintext.push((len_1 >> 8) as u8);
-                plaintext.push(len_1 as u8);
+                plaintext.push(((len_1 - 4) >> 8) as u8);
+                plaintext.push((len_1 - 4) as u8);
+                4usize
             }
-            _ => panic!("AS_REP shouldn't be this large!"),
-        }
+            _ => {
+                return Err(Rc4Md4Error::AsRepTooLarge);
+            }
+        };
         plaintext.push(0x30);
-        let len_2 = ciphertext.len() - 32;
-        match len_2 {
-            0..=127 => plaintext.push(len_2 as u8),
-            128..=255 => {
+        let len_2 = ciphertext.len() - 24 - len_prefix_1;
+        let _len_prefix_2 = match len_2 {
+            0..=129 => {
+                plaintext.push((len_2 - 2) as u8);
+                2usize
+            }
+            130..=258 => {
                 plaintext.push(0x81);
-                plaintext.push(len_2 as u8);
+                plaintext.push((len_2 - 3) as u8);
+                3usize
             }
-            256..=65535 => {
+            259..=65535 => {
                 plaintext.push(0x82);
-                plaintext.push((len_2 >> 8) as u8);
-                plaintext.push(len_2 as u8);
+                plaintext.push(((len_2 - 4) >> 8) as u8);
+                plaintext.push((len_2 - 4) as u8);
+                4usize
             }
-            _ => panic!("AS_REP shouldn't be this large!"),
-        }
+            _ => {
+                return Err(Rc4Md4Error::AsRepTooLarge);
+            }
+        };
         plaintext.extend_from_slice(&[
             0xa0, 0x1b, 0x30, 0x19, 0xa0, 0x03, 0x02, 0x01, 0x11, 0xa1, 0x12, 0x04, 0x10,
         ]);
@@ -190,6 +208,7 @@ impl EncryptedTimestamp {
     //     EncryptedTimestamp(buf.into())
     // }
 
+    /// Iterate over all possible ciphertext candidates with keystream length += 1
     pub fn iter_last_byte(keystream: &Keystream) -> impl Iterator<Item = (Self, u8)> {
         assert!(keystream.len() >= 45);
         let ascii = format!("{}", Utc::now().format("%Y%m%d%H%M%SZ")).into_bytes();
@@ -260,13 +279,66 @@ fn xor(a: &[u8], b: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::DateTime;
     use hex_literal::hex;
+    use pretty_assertions::assert_eq;
     use pretty_hex::PrettyHex;
+    use rasn_kerberos::{
+        EncAsRepPart, EncKdcRepPart, EncryptionKey, HostAddress, KerberosFlags, KerberosString,
+        KerberosTime, LastReqValue, PaData, PrincipalName, TicketFlags,
+    };
 
     use super::*;
 
     #[test]
     fn decrypt_works() {
+        let expected = EncAsRepPart(EncKdcRepPart {
+            key: EncryptionKey {
+                r#type: 18,
+                value: Bytes::from_static(
+                    b"\r\xc9He\xa4]\xe3\xd2vNc\xfdP\xf6\0D\x91]\x9b9\x7f\x83\x902di.\xeb\te\x9dW",
+                ),
+            },
+            last_req: vec![LastReqValue {
+                r#type: 0,
+                value: KerberosTime(
+                    DateTime::parse_from_rfc3339("2023-05-08T14:25:48+00:00").unwrap(),
+                ),
+            }],
+            nonce: 12345678u32,
+            key_expiration: Some(KerberosTime(
+                DateTime::parse_from_rfc3339("2037-09-14T02:48:05+00:00").unwrap(),
+            )),
+            flags: TicketFlags(KerberosFlags::from_slice(b"\x40\xe1\x00\x00")),
+            auth_time: KerberosTime(
+                DateTime::parse_from_rfc3339("2023-05-08T14:25:48+00:00").unwrap(),
+            ),
+            start_time: Some(KerberosTime(
+                DateTime::parse_from_rfc3339("2023-05-08T14:25:48+00:00").unwrap(),
+            )),
+            end_time: KerberosTime(
+                DateTime::parse_from_rfc3339("2023-05-09T00:25:48+00:00").unwrap(),
+            ),
+            renew_till: Some(KerberosTime(
+                DateTime::parse_from_rfc3339("2023-05-15T14:25:48+00:00").unwrap(),
+            )),
+            srealm: KerberosString::new("WINDOMAIN.LOCAL".to_owned()),
+            sname: PrincipalName {
+                r#type: 2,
+                string: vec![
+                    KerberosString::new("krbtgt".to_owned()),
+                    KerberosString::new("WINDOMAIN.LOCAL".to_owned()),
+                ],
+            },
+            caddr: Some(vec![HostAddress {
+                addr_type: 20,
+                address: Bytes::from_static(b"WORKSTATION"),
+            }]),
+            encrypted_pa_data: Some(vec![PaData {
+                r#type: 165,
+                value: Bytes::from_static(b"\x1f\0\0\0"),
+            }]),
+        });
         let mut ciphertext = hex!(
             "25 68 26 7b 35 10 56 55 92 ba 69 c3 44 6a 9d ac"
             "99 fa 97 fc bc c0 40 d8 6c 81 a5 63 e7 2f bd 40"
@@ -292,7 +364,7 @@ mod tests {
         );
         let password = "vagrant";
         decrypt(&mut ciphertext, password).unwrap();
-        println!("{:?}", &ciphertext.hex_dump());
-        todo!()
+        let output: EncAsRepPart = rasn::der::decode(&ciphertext[24..]).unwrap();
+        assert_eq!(output, expected);
     }
 }

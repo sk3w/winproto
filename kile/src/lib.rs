@@ -1,7 +1,7 @@
 mod client;
 mod codec;
 pub mod constants;
-mod crypt;
+pub mod crypt;
 mod frame;
 pub mod fs;
 pub mod parser;

